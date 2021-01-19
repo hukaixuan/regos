@@ -1,4 +1,4 @@
-# Legos
+# Regos
 
 
 ### TODO
