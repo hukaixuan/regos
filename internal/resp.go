@@ -42,7 +42,9 @@ func NewRequest(b []byte) *Request {
 	// TODO optimize parse
 	sb := bytes.Split(b, []byte(End))
 	req := &Request{}
-	req.cmd = string(sb[2])
+	if len(sb) > 2 {
+		req.cmd = string(sb[2])
+	}
 	for i := 4; i < len(sb); i += 2 {
 		req.params = append(req.params, string(sb[i]))
 	}

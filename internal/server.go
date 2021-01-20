@@ -2,6 +2,7 @@ package internal
 
 import (
 	"log"
+	"strconv"
 
 	"github.com/tidwall/evio"
 )
@@ -77,12 +78,14 @@ func (s *Server) onData(ec evio.Conn, in []byte) (out []byte, action evio.Action
 		k, v := r.params[0], r.params[1]
 		s.DB[c.DBNo].data[k] = v
 		out = []byte(String + OK + End)
-	// case "keys", "KEYS":
-	// 	res := Array + strconv.Itoa(len(s.DB[c.DBNo].data)) + End
-	// 	for k := range s.DB[c.DBNo].data {
-	// 		res += Bulk + strconv.Itoa(len(k)) + End + k + End
-	// 	}
-	// 	out = []byte(res)
+	case "keys", "KEYS":
+		res := Array + strconv.Itoa(len(s.DB[c.DBNo].data)) + End
+		for k := range s.DB[c.DBNo].data {
+			res += Bulk + strconv.Itoa(len(k)) + End + k + End
+		}
+		out = []byte(res)
+	case "ping", "PING":
+		out = []byte(String + "PONG" + End)
 	case "CONFIG":
 		// for redis-benchmark
 		if r.params[1] == "save" {
