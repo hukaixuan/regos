@@ -1,25 +1,29 @@
 package internal
 
 import (
-	"fmt"
 	"log"
-	"net"
-	"strconv"
+
+	"github.com/tidwall/evio"
 )
 
 type Server struct {
 	DBNum int
 
-	DB          []*db
-	Clients     map[string]*Client
-	processChan chan *Client
+	DB      []*db
+	Clients map[string]*Client
+
+	Events evio.Events
+}
+
+type conn struct {
+	is   evio.InputStream
+	addr string
 }
 
 func NewServer() *Server {
 	s := &Server{
-		DBNum:       16,
-		processChan: make(chan *Client),
-		Clients:     make(map[string]*Client, 1024),
+		DBNum:   16,
+		Clients: make(map[string]*Client, 1024),
 	}
 	// Init or load DB when start
 	for i := 0; i < s.DBNum; i++ {
@@ -28,87 +32,66 @@ func NewServer() *Server {
 	return s
 }
 
-func (s *Server) Serve() error {
-	ln, err := net.Listen("tcp", "127.0.0.1:6380")
+func (s *Server) Serve() {
+	s.Events.NumLoops = 1
+	s.Events.Serving = func(srv evio.Server) (action evio.Action) {
+		log.Println("s.Events.Serving")
+		return
+	}
+	s.Events.Opened = s.onOpen
+	s.Events.Closed = func(ec evio.Conn, err error) (action evio.Action) {
+		return
+	}
+
+	s.Events.Data = s.onData
+
+	err := evio.Serve(s.Events, "tcp://127.0.0.1:6380")
 	if err != nil {
 		log.Fatal(err)
 	}
-	fmt.Println("Read to Accept request on", ln.Addr().String())
-
-	go s.ProcessLoop()
-
-	// Process Connection
-	for {
-		conn, err := ln.Accept()
-		fmt.Println("accept connection", conn)
-		if err != nil {
-			fmt.Println(err)
-		}
-		s.handleConnection(conn)
-	}
-
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
-	clientKey := conn.RemoteAddr().String()
-	c, exist := s.Clients[clientKey]
-	if !exist {
-		c = NewClient(conn)
-	} else {
-		// TODO: Reset Connection
-		c.Conn = conn
+func (s *Server) onOpen(ec evio.Conn) (out []byte, opts evio.Options, action evio.Action) {
+	ec.SetContext(&conn{})
+	clientKey := ec.RemoteAddr().String()
+	if _, exist := s.Clients[clientKey]; !exist {
+		s.Clients[clientKey] = NewClient()
 	}
-
-	go c.StartSessionLoop(s.processChan)
+	return
 }
 
-func (s *Server) ProcessLoop() {
-	for {
-		c := <-s.processChan
-		// fmt.Printf("process c %p from processChan %v\n", c, bucketN)
-		s.Process(c)
-	}
-}
-
-func (s *Server) Process(c *Client) error {
-	r := c.Request
-	var resp *RESP
+func (s *Server) onData(ec evio.Conn, in []byte) (out []byte, action evio.Action) {
+	r := NewRequest(in)
+	c := s.Clients[ec.RemoteAddr().String()]
 	switch r.cmd {
 	case "get", "GET":
 		k := r.params[0]
-		resp = NewRESP([]byte(Nil))
-		// v, exist := s.DB[0].data.Load(k)
 		v, exist := s.DB[c.DBNo].data[k]
 		if exist {
-			resp = NewRESP([]byte(String + v.(string) + End))
+			out = []byte(String + v.(string) + End)
 			// fmt.Println("Get from ", bucketN)
 		} else {
-			resp = NewRESP([]byte(Nil))
+			out = []byte(Nil)
 		}
 	case "set", "SET":
 		k, v := r.params[0], r.params[1]
-		// s.DB[0].data.Store(k, v)
 		s.DB[c.DBNo].data[k] = v
-		resp = NewRESP([]byte(String + OK + End))
-		// fmt.Println("Set to ", bucketN)
-	case "keys", "KEYS":
-		res := Array + strconv.Itoa(len(s.DB[c.DBNo].data)) + End
-		for k := range s.DB[c.DBNo].data {
-			res += Bulk + strconv.Itoa(len(k)) + End + k + End
-		}
-		resp = NewRESP([]byte(res))
+		out = []byte(String + OK + End)
+	// case "keys", "KEYS":
+	// 	res := Array + strconv.Itoa(len(s.DB[c.DBNo].data)) + End
+	// 	for k := range s.DB[c.DBNo].data {
+	// 		res += Bulk + strconv.Itoa(len(k)) + End + k + End
+	// 	}
+	// 	out = []byte(res)
 	case "CONFIG":
 		// for redis-benchmark
 		if r.params[1] == "save" {
-			c.Conn.Write([]byte("*2\r\n$4\r\nsave\r\n$21\r\n900 1 300 10 60 10000\r\n"))
-			resp = NewRESP([]byte("*2\r\n$10\r\nappendonly\r\n$2\r\nno\r\n"))
+			// c.Conn.Write([]byte("*2\r\n$4\r\nsave\r\n$21\r\n900 1 300 10 60 10000\r\n"))
+			out = []byte("*2\r\n$4\r\nsave\r\n$21\r\n900 1 300 10 60 10000\r\n*2\r\n$10\r\nappendonly\r\n$2\r\nno\r\n")
 		}
 
 	default:
-		resp = NewRESP([]byte(RespOK))
+		out = []byte(RespOK)
 	}
-
-	c.OutputBuf <- resp.Bytes
-
-	return nil
+	return
 }
