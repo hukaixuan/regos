@@ -4,21 +4,15 @@ import (
 	"log"
 	"strconv"
 
-	"github.com/tidwall/evio"
+	"github.com/panjf2000/gnet"
 )
 
 type Server struct {
+	*gnet.EventServer
 	DBNum int
 
 	DB      []*db
 	Clients map[string]*Client
-
-	Events evio.Events
-}
-
-type conn struct {
-	is   evio.InputStream
-	addr string
 }
 
 func NewServer() *Server {
@@ -34,36 +28,35 @@ func NewServer() *Server {
 }
 
 func (s *Server) Serve() {
-	s.Events.NumLoops = 1
-	s.Events.Serving = func(srv evio.Server) (action evio.Action) {
-		log.Println("s.Events.Serving")
-		return
-	}
-	s.Events.Opened = s.onOpen
-	s.Events.Closed = func(ec evio.Conn, err error) (action evio.Action) {
-		return
-	}
-
-	s.Events.Data = s.onData
-
-	err := evio.Serve(s.Events, "tcp://127.0.0.1:6380")
+	err := gnet.Serve(s, "tcp://127.0.0.1:6380")
 	if err != nil {
 		log.Fatal(err)
 	}
 }
 
-func (s *Server) onOpen(ec evio.Conn) (out []byte, opts evio.Options, action evio.Action) {
-	ec.SetContext(&conn{})
-	clientKey := ec.RemoteAddr().String()
+func (s *Server) OnInitComplete(srv gnet.Server) (action gnet.Action) {
+	log.Printf("Listening on %s (multi-cores: %t, loops: %d)\n",
+		srv.Addr.String(), srv.Multicore, srv.NumEventLoop)
+	return
+}
+
+func (s *Server) OnOpened(c gnet.Conn) (out []byte, action gnet.Action) {
+	clientKey := c.RemoteAddr().String()
 	if _, exist := s.Clients[clientKey]; !exist {
 		s.Clients[clientKey] = NewClient()
 	}
 	return
 }
 
-func (s *Server) onData(ec evio.Conn, in []byte) (out []byte, action evio.Action) {
-	r := NewRequest(in)
-	c := s.Clients[ec.RemoteAddr().String()]
+func (s *Server) OnClosed(c gnet.Conn, err error) (action gnet.Action) {
+	clientKey := c.RemoteAddr().String()
+	delete(s.Clients, clientKey)
+	return
+}
+
+func (s *Server) React(frame []byte, conn gnet.Conn) (out []byte, action gnet.Action) {
+	r := NewRequest(frame)
+	c := s.Clients[conn.RemoteAddr().String()]
 	switch r.cmd {
 	case "get", "GET":
 		k := r.params[0]
