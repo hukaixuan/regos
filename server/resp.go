@@ -1,5 +1,5 @@
 // Implement RESP(REdis Serialization Protocol)
-package internal
+package server
 
 import (
 	"bytes"
@@ -20,16 +20,14 @@ const (
 )
 
 type RESP struct {
-	Bytes []byte
+	bytes []byte
 }
 
 func NewRESP(bytes []byte) *RESP {
 	return &RESP{
-		Bytes: bytes,
+		bytes: bytes,
 	}
 }
-
-var A, B string
 
 // Request A client sends the Redis server a RESP Array consisting of just Bulk Strings.
 type Request struct {
