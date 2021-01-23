@@ -1,5 +1,5 @@
 // Implement RESP(REdis Serialization Protocol)
-package server
+package resp
 
 import (
 	"bytes"
@@ -16,7 +16,8 @@ const (
 	OK  = "OK"
 
 	Nil    = "$-1\r\n"
-	RespOK = String + OK + End
+	Pong   = "+PONG\r\n"
+	RespOK = "+OK\r\n"
 )
 
 type RESP struct {
@@ -31,8 +32,8 @@ func NewRESP(bytes []byte) *RESP {
 
 // Request A client sends the Redis server a RESP Array consisting of just Bulk Strings.
 type Request struct {
-	cmd    string
-	params []string
+	Command string
+	Params  []string
 }
 
 func NewRequest(b []byte) *Request {
@@ -41,10 +42,22 @@ func NewRequest(b []byte) *Request {
 	sb := bytes.Split(b, []byte(End))
 	req := &Request{}
 	if len(sb) > 2 {
-		req.cmd = string(sb[2])
+		req.Command = string(sb[2])
 	}
 	for i := 4; i < len(sb); i += 2 {
-		req.params = append(req.params, string(sb[i]))
+		req.Params = append(req.Params, string(sb[i]))
 	}
 	return req
+}
+
+func FormatString(s string) []byte {
+	return []byte(String + s + End)
+}
+
+func NilString() []byte {
+	return []byte(Nil)
+}
+
+func PONGString() []byte {
+	return []byte(Pong)
 }

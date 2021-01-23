@@ -1,4 +1,4 @@
-package types
+package server
 
 // basic data types
 const (

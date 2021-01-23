@@ -1,0 +1,1 @@
+go build -o bin/regos-server ./cmd/regos-server 

@@ -1,18 +1,21 @@
 package server
 
-const (
-	clientDefaultDB = 0
+import (
+	"github.com/hukaixuan/regos/db"
+	"github.com/hukaixuan/regos/resp"
 )
 
 // Client struct store info of client
 type Client struct {
-	db int
+	DB *db.DB
+
+	Request *resp.Request
 }
 
 // NewClient .
-func NewClient() *Client {
+func NewClient(db *db.DB) *Client {
 	c := &Client{
-		db: clientDefaultDB,
+		DB: db,
 	}
 	return c
 }

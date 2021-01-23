@@ -1,15 +1,20 @@
 package server
 
 import (
+	"fmt"
 	"log"
 
+	figure "github.com/common-nighthawk/go-figure"
+	"github.com/hukaixuan/regos/config"
 	"github.com/hukaixuan/regos/db"
+	"github.com/hukaixuan/regos/resp"
 	"github.com/tidwall/evio"
 )
 
 // Server .
 type Server struct {
-	dbNum int
+	// dbNum int
+	cfg *config.Config
 
 	db      []*db.DB
 	clients map[string]*Client
@@ -23,20 +28,20 @@ type conn struct {
 }
 
 // NewServer construct a Server instance
-func NewServer() *Server {
+func NewServer(cfg *config.Config) (*Server, error) {
 	s := &Server{
-		dbNum:   16,
+		cfg:     cfg,
 		clients: make(map[string]*Client, 1024),
 	}
 	// Init or load DB when start
-	for i := 0; i < s.dbNum; i++ {
+	for i := 0; i < s.cfg.DBNum; i++ {
 		s.db = append(s.db, db.NewDB())
 	}
-	return s
+	return s, nil
 }
 
-// Serve start the main process
-func (s *Server) Serve() {
+// Run start the main process
+func (s *Server) Run() {
 	s.events.NumLoops = 1
 	s.events.Serving = func(srv evio.Server) (action evio.Action) {
 		s.printStartInfo()
@@ -52,7 +57,7 @@ func (s *Server) Serve() {
 	}
 	s.events.Data = s.onData
 
-	err := evio.Serve(s.events, "tcp://127.0.0.1:6380")
+	err := evio.Serve(s.events, s.cfg.Addr)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -62,43 +67,21 @@ func (s *Server) onOpen(ec evio.Conn) (out []byte, opts evio.Options, action evi
 	ec.SetContext(&conn{})
 	clientKey := ec.RemoteAddr().String()
 	if _, exist := s.clients[clientKey]; !exist {
-		s.clients[clientKey] = NewClient()
+		s.clients[clientKey] = NewClient(s.db[0])
 	}
 	return
 }
 
 func (s *Server) onData(ec evio.Conn, in []byte) (out []byte, action evio.Action) {
-	r := NewRequest(in)
 	c := s.clients[ec.RemoteAddr().String()]
-	switch r.cmd {
-	case "get", "GET":
-		k := r.params[0]
-		v := s.db[c.db].Get(k)
-		if v != nil {
-			out = []byte(String + v.(string) + End)
-		} else {
-			out = []byte(Nil)
-		}
-	case "set", "SET":
-		k, v := r.params[0], r.params[1]
-		s.db[c.db].Set(k, v)
-		out = []byte(String + OK + End)
-	case "ping", "PING":
-		out = []byte(String + "PONG" + End)
-	case "CONFIG":
-		// for redis-benchmark
-		if r.params[1] == "save" {
-			out = []byte("*2\r\n$4\r\nsave\r\n$21\r\n900 1 300 10 60 10000\r\n*2\r\n$10\r\nappendonly\r\n$2\r\nno\r\n")
-		}
-
-	default:
-		out = []byte(RespOK)
-	}
-
+	c.Request = resp.NewRequest(in)
+	out, action = dispatch(ec, c)
 	return
 }
 
 func (s *Server) printStartInfo() {
-	log.Println("s.events.Serving")
+	f := figure.NewFigure("Regos", "speed", true)
+	f.Print()
+	log.Println(fmt.Sprintf("Start server at %s \n", s.cfg.Addr))
 	// TODO more info
 }
